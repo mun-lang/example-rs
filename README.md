@@ -6,6 +6,10 @@ A collection of Rust-powered Mun example games to showcase its hot reloading fun
 
 ![](images/pong.png)
 
+## Spaceship (Asteroids-like game) since Mun v0.2.1
+
+![](images/spaceship.png)
+
 ## License
 
 The Mun Example Suite is licensed under either of
@@ -14,5 +18,5 @@ The Mun Example Suite is licensed under either of
    http://www.apache.org/licenses/LICENSE-2.0)
  * MIT license ([LICENSE-MIT](LICENSE-MIT) or
    http://opensource.org/licenses/MIT)
- 
+
  at your option.

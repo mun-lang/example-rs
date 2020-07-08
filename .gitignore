@@ -1,3 +1,4 @@
 /target
 /.vscode
 *.munlib
+/Cargo.lock

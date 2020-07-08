@@ -16,3 +16,4 @@ categories = ["Game development", "Mun"]
 ggez = "0.5.1"
 mun_runtime = "0.2.0"
 rand = "0.7"
+tetra = "0.4"
