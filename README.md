@@ -2,7 +2,7 @@
 
 A collection of Rust-powered Mun example games to showcase its hot reloading functionality.
 
-## Pong (est. 1972) since Mun v0.2.0
+## Pong (est. 1972) since Mun v0.2.1
 
 ![](images/pong.png)
 
