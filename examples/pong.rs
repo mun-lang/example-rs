@@ -4,7 +4,7 @@ use ggez::{
     nalgebra as na, Context, ContextBuilder, GameResult,
 };
 use mun_examples::marshal_vec2;
-use mun_runtime::{invoke_fn, RetryResultExt, Runtime, RuntimeBuilder, StructRef};
+use mun_runtime::{invoke_fn, RootedStruct, Runtime, RuntimeBuilder, StructRef};
 use rand::Rng;
 use std::{cell::RefCell, rc::Rc};
 
@@ -23,7 +23,11 @@ fn main() {
         .spawn()
         .expect("Failed to load munlib");
 
-    let state: StructRef = invoke_fn!(runtime, "new_state").wait();
+    let state = {
+        let runtime_ref = runtime.borrow();
+        let state: StructRef = invoke_fn!(&runtime_ref, "new_state").unwrap();
+        state.root(runtime.clone())
+    };
     let mut pong = PongGame { runtime, state };
 
     match event::run(&mut ctx, &mut event_loop, &mut pong) {
@@ -34,7 +38,7 @@ fn main() {
 
 struct PongGame {
     runtime: Rc<RefCell<Runtime>>,
-    state: StructRef,
+    state: RootedStruct,
 }
 
 impl EventHandler for PongGame {
@@ -45,21 +49,22 @@ impl EventHandler for PongGame {
         _keymods: KeyMods,
         _repeat: bool,
     ) {
+        let state = self.state.by_ref();
         match keycode {
             KeyCode::W => {
-                let mut paddle = self.state.get::<StructRef>("paddle_left").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_left").unwrap();
                 paddle.set("move_up", true).unwrap();
             }
             KeyCode::S => {
-                let mut paddle = self.state.get::<StructRef>("paddle_left").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_left").unwrap();
                 paddle.set("move_down", true).unwrap();
             }
             KeyCode::Up => {
-                let mut paddle = self.state.get::<StructRef>("paddle_right").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_right").unwrap();
                 paddle.set("move_up", true).unwrap();
             }
             KeyCode::Down => {
-                let mut paddle = self.state.get::<StructRef>("paddle_right").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_right").unwrap();
                 paddle.set("move_down", true).unwrap();
             }
             KeyCode::Escape => {
@@ -70,21 +75,22 @@ impl EventHandler for PongGame {
     }
 
     fn key_up_event(&mut self, _ctx: &mut Context, keycode: KeyCode, _keymods: KeyMods) {
+        let state = self.state.by_ref();
         match keycode {
             KeyCode::W => {
-                let mut paddle = self.state.get::<StructRef>("paddle_left").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_left").unwrap();
                 paddle.set("move_up", false).unwrap();
             }
             KeyCode::S => {
-                let mut paddle = self.state.get::<StructRef>("paddle_left").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_left").unwrap();
                 paddle.set("move_down", false).unwrap();
             }
             KeyCode::Up => {
-                let mut paddle = self.state.get::<StructRef>("paddle_right").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_right").unwrap();
                 paddle.set("move_up", false).unwrap();
             }
             KeyCode::Down => {
-                let mut paddle = self.state.get::<StructRef>("paddle_right").unwrap();
+                let mut paddle = state.get::<StructRef>("paddle_right").unwrap();
                 paddle.set("move_down", false).unwrap();
             }
             _ => (),
@@ -92,7 +98,11 @@ impl EventHandler for PongGame {
     }
 
     fn update(&mut self, _ctx: &mut ggez::Context) -> ggez::GameResult {
-        let _: () = invoke_fn!(self.runtime, "update", self.state.clone()).wait();
+        {
+            let state = self.state.by_ref().clone();
+            let runtime_ref = self.runtime.borrow();
+            let _: () = invoke_fn!(&runtime_ref, "update", state).unwrap();
+        }
 
         self.runtime.borrow_mut().update();
         Ok(())
@@ -101,16 +111,19 @@ impl EventHandler for PongGame {
     fn draw(&mut self, ctx: &mut ggez::Context) -> ggez::GameResult {
         graphics::clear(ctx, graphics::BLACK);
 
-        let ball = self.state.get::<StructRef>("ball").unwrap();
-        let paddle_left = self.state.get::<StructRef>("paddle_left").unwrap();
-        let paddle_right = self.state.get::<StructRef>("paddle_right").unwrap();
+        let state = self.state.by_ref();
+        let runtime_ref = self.runtime.borrow();
+
+        let ball = state.get::<StructRef>("ball").unwrap();
+        let paddle_left = state.get::<StructRef>("paddle_left").unwrap();
+        let paddle_right = state.get::<StructRef>("paddle_right").unwrap();
 
         let ball_mesh = MeshBuilder::new()
             .circle(
                 DrawMode::fill(),
                 na::Point2::origin(),
-                invoke_fn!(self.runtime, "ball_radius").unwrap(),
-                invoke_fn!(self.runtime, "ball_tolerance").unwrap(),
+                invoke_fn!(&runtime_ref, "ball_radius").unwrap(),
+                invoke_fn!(&runtime_ref, "ball_tolerance").unwrap(),
                 graphics::WHITE,
             )
             .build(ctx)?;
@@ -120,8 +133,8 @@ impl EventHandler for PongGame {
             .rectangle(
                 DrawMode::fill(),
                 bounds(
-                    invoke_fn!(self.runtime, "paddle_width").unwrap(),
-                    invoke_fn!(self.runtime, "paddle_height").unwrap(),
+                    invoke_fn!(&runtime_ref, "paddle_width").unwrap(),
+                    invoke_fn!(&runtime_ref, "paddle_height").unwrap(),
                 ),
                 graphics::WHITE,
             )
@@ -132,12 +145,12 @@ impl EventHandler for PongGame {
         queue_score_text(
             ctx,
             &paddle_left,
-            marshal_vec2(&invoke_fn!(self.runtime, "left_score_pos").unwrap()),
+            marshal_vec2(&invoke_fn!(&runtime_ref, "left_score_pos").unwrap()),
         );
         queue_score_text(
             ctx,
             &paddle_right,
-            marshal_vec2(&invoke_fn!(self.runtime, "right_score_pos").unwrap()),
+            marshal_vec2(&invoke_fn!(&runtime_ref, "right_score_pos").unwrap()),
         );
         graphics::draw_queued_text(ctx, DrawParam::default(), None, FilterMode::Linear)?;
 

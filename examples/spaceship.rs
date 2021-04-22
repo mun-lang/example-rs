@@ -8,7 +8,7 @@ use tetra::graphics::text::{Font, Text};
 
 use tetra::input::{self, Key};
 
-use mun_runtime::{invoke_fn, RetryResultExt, RuntimeBuilder, StructRef};
+use mun_runtime::{invoke_fn, RootedStruct, RuntimeBuilder, StructRef};
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -70,12 +70,12 @@ fn textures(ctx: &mut Context) -> [(Texture, Vec2<f32>); 5] {
 
 struct SpaceshipGame {
     mun_runtime: Rc<RefCell<mun_runtime::Runtime>>,
-    asteroids: Vec<StructRef>,
-    rockets: Vec<StructRef>,
+    asteroids: Vec<RootedStruct>,
+    rockets: Vec<RootedStruct>,
     textures: [(Texture, Vec2<f32>); 5],
     scaler: ScreenScaler,
-    game_struct: StructRef,
-    player_input: StructRef,
+    game_struct: RootedStruct,
+    player_input: RootedStruct,
     font: Font,
     score: u8,
 }
@@ -88,6 +88,7 @@ impl State for SpaceshipGame {
 
         let spaceship_object: StructRef = self
             .game_struct
+            .by_ref()
             .get::<StructRef>("spaceship")
             .unwrap()
             .get::<StructRef>("object")
@@ -96,12 +97,11 @@ impl State for SpaceshipGame {
 
         // Draw rockets
         for rocket in self.rockets.iter() {
-            let rocket_object = rocket.get::<StructRef>("object").unwrap();
+            let rocket_object = rocket.by_ref().get::<StructRef>("object").unwrap();
             let rocket_position = rocket_object.get::<StructRef>("position").unwrap();
 
-            graphics::draw(
+            self.textures[1].0.draw(
                 ctx,
-                &self.textures[1].0,
                 DrawParams::new()
                     .position(Vec2::new(
                         rocket_position.get("x").unwrap(),
@@ -113,9 +113,8 @@ impl State for SpaceshipGame {
         }
 
         // Draw spaceship
-        graphics::draw(
+        self.textures[0].0.draw(
             ctx,
-            &self.textures[0].0,
             DrawParams::new()
                 .position(Vec2::new(
                     spaceship_object_position.get("x").unwrap(),
@@ -127,13 +126,12 @@ impl State for SpaceshipGame {
 
         // Draw asteroids
         for asteroid in self.asteroids.iter() {
-            let asteroid_object = asteroid.get::<StructRef>("object").unwrap();
+            let asteroid_object = asteroid.by_ref().get::<StructRef>("object").unwrap();
             let asteroid_position = asteroid_object.get::<StructRef>("position").unwrap();
-            let asteroid_size: usize = asteroid.get::<u8>("size").unwrap().into();
+            let asteroid_size: usize = asteroid.by_ref().get::<u8>("size").unwrap().into();
 
-            graphics::draw(
+            self.textures[asteroid_size + 1].0.draw(
                 ctx,
-                &self.textures[asteroid_size + 1].0,
                 DrawParams::new()
                     .position(Vec2::new(
                         asteroid_position.get("x").unwrap(),
@@ -146,40 +144,42 @@ impl State for SpaceshipGame {
 
         graphics::reset_canvas(ctx);
 
-        graphics::draw(ctx, &self.scaler, Vec2::new(0., 0.));
+        self.scaler.draw(ctx);
 
         // Draw score
-        graphics::draw(
-            ctx,
-            &Text::new(format!("Score {}", self.score), self.font.clone()),
-            Vec2::new(10., 10.),
-        );
+        &Text::new(format!("Score {}", self.score), self.font.clone())
+            .draw(ctx, Vec2::new(10., 10.));
 
         Ok(())
     }
 
     fn update(&mut self, ctx: &mut Context) -> tetra::Result {
         // Collect input to pass it into mun runtime
+        let player_input = self.player_input.by_ref().clone();
+        let player_input = player_input.root(self.mun_runtime.clone());
+        let mut player_input = player_input.by_ref().clone();
+
         if input::is_key_down(ctx, Key::Left) {
-            self.player_input.set("left", true).unwrap();
+            player_input.set("left", true).unwrap();
         }
         if input::is_key_down(ctx, Key::Right) {
-            self.player_input.set("right", true).unwrap();
+            player_input.set("right", true).unwrap();
         }
         if input::is_key_down(ctx, Key::Up) {
-            self.player_input.set("up", true).unwrap();
+            player_input.set("up", true).unwrap();
         }
         if input::is_key_down(ctx, Key::Z) {
-            self.player_input.set("shoot", true).unwrap();
+            player_input.set("shoot", true).unwrap();
         }
 
-        if self.game_struct.get::<bool>("spawn_new_rocket").unwrap() {
-            self.game_struct.set("spawn_new_rocket", false).unwrap();
+        let runtime_ref = self.mun_runtime.borrow();
+        let mut game_struct = self.game_struct.by_ref().clone();
 
-            if !(self.rockets.len() >= invoke_fn!(self.mun_runtime, "max_rockets_amount").unwrap())
-            {
-                let spaceship_object: StructRef = self
-                    .game_struct
+        if game_struct.get::<bool>("spawn_new_rocket").unwrap() {
+            game_struct.set("spawn_new_rocket", false).unwrap();
+
+            if !(self.rockets.len() >= invoke_fn!(&runtime_ref, "max_rockets_amount").unwrap()) {
+                let spaceship_object: StructRef = game_struct
                     .get::<StructRef>("spaceship")
                     .unwrap()
                     .get::<StructRef>("object")
@@ -187,19 +187,19 @@ impl State for SpaceshipGame {
                 let spaceship_positon = spaceship_object.get::<StructRef>("position").unwrap();
 
                 let new_bullet: StructRef = invoke_fn!(
-                    self.mun_runtime,
+                    &runtime_ref,
                     "new_rocket",
                     spaceship_positon,
                     spaceship_object.get::<f32>("angle").unwrap()
                 )
                 .unwrap();
 
-                self.rockets.push(new_bullet);
+                self.rockets.push(new_bullet.root(self.mun_runtime.clone()));
             }
         }
 
-        if self.game_struct.get::<bool>("spawn_new_asteroids").unwrap() {
-            self.game_struct.set("spawn_new_asteroids", false).unwrap();
+        if game_struct.get::<bool>("spawn_new_asteroids").unwrap() {
+            game_struct.set("spawn_new_asteroids", false).unwrap();
 
             self.asteroids = new_asteroids(&self.mun_runtime);
         }
@@ -207,53 +207,60 @@ impl State for SpaceshipGame {
         // Rockets update
         for index in 0..self.rockets.len() {
             let _: () = invoke_fn!(
-                self.mun_runtime,
+                &runtime_ref,
                 "update_rocket",
-                self.rockets[index].clone()
+                self.rockets[index].by_ref().clone()
             )
             .unwrap();
         }
         // Delete rockets
         self.rockets
-            .retain(|rocket| !rocket.get::<bool>("need_to_destroy").unwrap());
+            .retain(|rocket| !rocket.by_ref().get::<bool>("need_to_destroy").unwrap());
 
         // Asteroids update
         for index in 0..self.asteroids.len() {
             let _: () = invoke_fn!(
-                self.mun_runtime,
+                &runtime_ref,
                 "update_asteroid",
-                self.asteroids[index].clone()
+                self.asteroids[index].by_ref().clone()
             )
             .unwrap();
         }
 
         let mut new_asteroids: Vec<StructRef> = Vec::new();
 
-        let mut asteroids = self.asteroids.clone();
+        let mut asteroids: Vec<RootedStruct> = self
+            .asteroids
+            .iter()
+            .map(|asteroid| {
+                let asteroid = asteroid.by_ref().clone();
+                asteroid.root(self.mun_runtime.clone())
+            })
+            .collect();
 
         asteroids.retain(|asteroid| {
-            if asteroid.get::<bool>("need_to_destroy").unwrap() {
-                if asteroid.get::<u8>("size").unwrap() > 1 {
-                    let asteroid_object = asteroid.get::<StructRef>("object").unwrap();
+            if asteroid.by_ref().get::<bool>("need_to_destroy").unwrap() {
+                if asteroid.by_ref().get::<u8>("size").unwrap() > 1 {
+                    let asteroid_object = asteroid.by_ref().get::<StructRef>("object").unwrap();
 
                     new_asteroids.push(
                         invoke_fn!(
-                            self.mun_runtime,
+                            &runtime_ref,
                             "new_asteroid",
                             asteroid_object.get::<StructRef>("position").unwrap(),
-                            thread_rng().gen_range(0.0_f32, 360.0_f32),
-                            asteroid.get::<u8>("size").unwrap() - 1
+                            thread_rng().gen_range(0.0_f32..360.0_f32),
+                            asteroid.by_ref().get::<u8>("size").unwrap() - 1
                         )
                         .unwrap(),
                     );
 
                     new_asteroids.push(
                         invoke_fn!(
-                            self.mun_runtime,
+                            &runtime_ref,
                             "new_asteroid",
                             asteroid_object.get::<StructRef>("position").unwrap(),
-                            thread_rng().gen_range(0.0_f32, 360.0_f32),
-                            asteroid.get::<u8>("size").unwrap() - 1
+                            thread_rng().gen_range(0.0_f32..360.0_f32),
+                            asteroid.by_ref().get::<u8>("size").unwrap() - 1
                         )
                         .unwrap(),
                     );
@@ -264,15 +271,23 @@ impl State for SpaceshipGame {
             }
         });
 
-        asteroids.append(&mut new_asteroids);
+        asteroids.append(
+            &mut new_asteroids
+                .into_iter()
+                .map(|elem| elem.root(self.mun_runtime.clone()))
+                .collect(),
+        );
 
         self.asteroids = asteroids;
 
         // Asteroids and rocket collision
         for rocket in self.rockets.iter_mut() {
             for asteroid in self.asteroids.iter_mut() {
+                let mut rocket = rocket.by_ref().clone();
+                let mut asteroid = asteroid.by_ref().clone();
+
                 let collide: bool = invoke_fn!(
-                    self.mun_runtime,
+                    &runtime_ref,
                     "object_collide",
                     rocket.get::<StructRef>("object").clone().unwrap(),
                     asteroid.get::<StructRef>("object").clone().unwrap()
@@ -290,19 +305,23 @@ impl State for SpaceshipGame {
         // Asteroids and spaceship collision
         for asteroid in self.asteroids.iter() {
             let collide: bool = invoke_fn!(
-                self.mun_runtime,
+                runtime_ref,
                 "object_collide",
-                self.game_struct
+                game_struct
                     .get::<StructRef>("spaceship")
                     .unwrap()
                     .get::<StructRef>("object")
                     .unwrap(),
-                asteroid.get::<StructRef>("object").clone().unwrap()
+                asteroid
+                    .by_ref()
+                    .get::<StructRef>("object")
+                    .clone()
+                    .unwrap()
             )
             .unwrap();
 
             if collide {
-                self.game_struct
+                game_struct
                     .set("token", rand::thread_rng().gen::<u8>())
                     .unwrap();
 
@@ -313,49 +332,47 @@ impl State for SpaceshipGame {
         }
 
         if self.asteroids.is_empty() {
-            self.game_struct.set("spawn_new_asteroids", true).unwrap();
+            game_struct.set("spawn_new_asteroids", true).unwrap();
         }
 
-        let _: () = invoke_fn!(
-            self.mun_runtime,
-            "update",
-            self.game_struct.clone(),
-            self.player_input.clone()
-        )
-        .wait();
+        let _: () = invoke_fn!(&runtime_ref, "update", game_struct, player_input.clone()).unwrap();
 
+        // Drop shared refernce to the runtime so we can borrow it mutably
+        drop(runtime_ref);
         self.mun_runtime.borrow_mut().update();
 
-        self.player_input = invoke_fn!(self.mun_runtime, "new_player_input").unwrap();
+        let runtime_ref = self.mun_runtime.borrow();
+        let new_player_input: StructRef = invoke_fn!(&runtime_ref, "new_player_input").unwrap();
+        self.player_input = new_player_input.root(self.mun_runtime.clone());
 
         Ok(())
     }
 }
 
-fn new_asteroids(mun_runtime: &Rc<RefCell<mun_runtime::Runtime>>) -> Vec<StructRef> {
+fn new_asteroids(mun_runtime: &Rc<RefCell<mun_runtime::Runtime>>) -> Vec<RootedStruct> {
+    let runtime_ref = mun_runtime.borrow();
     let mut asteroids = Vec::new();
-    for _ in 0..invoke_fn!(mun_runtime, "initial_asteroids_amount").unwrap() {
+    for _ in 0..invoke_fn!(&runtime_ref, "initial_asteroids_amount").unwrap() {
         let position: (f32, f32) = {
-            if thread_rng().gen_range(0, 1) == 0 {
-                (0.0, thread_rng().gen_range(0.0, game_area_height()))
+            if thread_rng().gen_range(0..1) == 0 {
+                (0.0, thread_rng().gen_range(0.0..game_area_height()))
             } else {
-                (0.0, thread_rng().gen_range(game_area_width(), 0.0))
+                (0.0, thread_rng().gen_range(game_area_width()..0.0))
             }
         };
 
         let asteroid_position: StructRef =
-            invoke_fn!(mun_runtime, "new_vec2", position.0, position.1).unwrap();
+            invoke_fn!(&runtime_ref, "new_vec2", position.0, position.1).unwrap();
 
-        asteroids.push(
-            invoke_fn!(
-                mun_runtime,
-                "new_asteroid",
-                asteroid_position,
-                thread_rng().gen_range(0.0_f32, 360.0_f32),
-                3_u8
-            )
-            .unwrap(),
-        );
+        let asteroid: StructRef = invoke_fn!(
+            &runtime_ref,
+            "new_asteroid",
+            asteroid_position,
+            thread_rng().gen_range(0.0_f32..360.0_f32),
+            3_u8
+        )
+        .unwrap();
+        asteroids.push(asteroid.root(mun_runtime.clone()));
     }
     asteroids
 }
@@ -378,9 +395,17 @@ fn main() -> tetra::Result {
         .spawn()
         .expect("Failed to spawn Runtime");
 
-    let game_struct = invoke_fn!(runtime, "new_game_struct").unwrap();
+    let game_struct = {
+        let runtime_ref = runtime.borrow();
+        let game_struct: StructRef = invoke_fn!(&runtime_ref, "new_game_struct").unwrap();
+        game_struct.root(runtime.clone())
+    };
 
-    let player_input: StructRef = invoke_fn!(runtime, "new_player_input").unwrap();
+    let player_input = {
+        let runtime_ref = runtime.borrow();
+        let player_input: StructRef = invoke_fn!(&runtime_ref, "new_player_input").unwrap();
+        player_input.root(runtime.clone())
+    };
 
     ContextBuilder::new("Spaceship Game", 1280, 720)
         .build()?
