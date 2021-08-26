@@ -13,7 +13,7 @@ A collection of Rust-powered Mun example games to showcase its hot reloading fun
 ## How to Run
 ```sh
 # Build the mun library
-mun init spaceship
+mun new spaceship
 cp resources/spaceship.mun spaceship/src/mod.mun
 mun build --manifest-path spaceship/mun.toml
 # Copy the mun library to current directory and rename it correctly
