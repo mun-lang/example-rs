@@ -10,6 +10,23 @@ A collection of Rust-powered Mun example games to showcase its hot reloading fun
 
 ![](images/spaceship.png)
 
+## How to Run
+```sh
+# Build the mun library and watch the src for changes
+# This should be done in a different terminal (or tab or on the background)
+mun new spaceship
+cp resources/spaceship.mun spaceship/src/mod.mun
+mun build --manifest-path spaceship/mun.toml --watch
+# In a second terminal we link the created library to the current directory and rename it properly.
+ln -s spaceship/target/mod.munlib spaceship.munlib
+# Run the example
+cargo run --example spaceship --features spaceship
+```
+
+That should do it, any changes to `spaceship/src/mod.mun will be immediatly reflected on the program via hotreloading.
+
+To run any other example, replace *all* `spaceship` occurences in the above instructions with the example name.
+
 ## License
 
 The Mun Example Suite is licensed under either of
